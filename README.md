@@ -1,6 +1,7 @@
 # Compute-Shaders
 
-A series of compute shaders made in Unity (written in HLSL).
+A series of compute shaders made in Unity (written in HLSL). 
+Done as part of a workshop ran by Arsiliath [@psychobiotik](https://twitter.com/psychobiotik)
 
 ### Rock-Paper-Scissors cellular automata
 ![RPS](Gif/RPS1G.gif)
