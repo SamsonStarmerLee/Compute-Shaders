@@ -1,0 +1,96 @@
+﻿#pragma kernel ResetKernel
+#pragma kernel StepKernel
+
+Texture2D<float4> readTex;
+RWTexture2D<float4> writeTex;
+uint rez;
+
+float2 neighbourhood0[961];
+uint entries0;
+float2 neighbourhood1[961];
+uint entries1;
+float2 neighbourhood2[961];
+uint entries2;
+float2 neighbourhood3[961];
+uint entries3;
+
+float2 Random(float2 p)
+{
+    float3 a = frac(p.xyx * float3(123.34, 234.34, 345.65));
+    a += dot(a, a + 34.45);
+    return frac(float2(a.x * a.y, a.y * a.z));
+}
+
+[numthreads(8, 8, 1)]
+void ResetKernel (uint3 id : SV_DispatchThreadID)
+{
+    writeTex[id.xy] = Random((float2) id.xy).x < 0.28 ? 1.0 : 0;
+}
+
+float WrappedRead(uint2 index, int2 translation)
+{
+    // We need to cast here in order for the modulo to work 
+    // correctly (in case translation takes index below 0).
+    int2 samp = ((int2)index + translation) % rez;
+    return clamp(readTex[samp].a, 0, 1);
+}
+
+//  Function from Iñigo Quiles
+//  https://www.shadertoy.com/view/MsS3Wc
+float3 hsb2rgb(in float3 c)
+{
+    float3 rgb = clamp(abs(((c.x * 6.0 + float3(0.0, 4.0, 2.0))
+        % 6.0) - 3.0) - 1.0,
+        0.0,
+        1.0);
+    rgb = rgb * rgb * (3.0 - 2.0 * rgb);
+    return c.z * lerp(float3(1.0, 1.0, 1.0), rgb, c.y);
+}
+
+[numthreads(8, 8, 1)]
+void StepKernel(uint3 id : SV_DispatchThreadID)
+{
+    // The numbers of living neighbourhood members.
+    uint sum0, sum1, sum2, sum3 = 0;
+
+    for (int a = 0; a < entries0; a++)
+        sum0 += WrappedRead(id.xy, neighbourhood0[a]);
+    
+    for (int b = 0; b < entries1; b++)
+        sum1 += WrappedRead(id.xy, neighbourhood1[b]);
+    
+    for (int c = 0; c < entries2; c++)
+        sum2 += WrappedRead(id.xy, neighbourhood2[c]);
+    
+    for (int d = 0; d < entries3; d++)
+        sum3 += WrappedRead(id.xy, neighbourhood3[d]);
+    
+    const float4 dead = float4(0, 0, 0, 0);
+    
+    float4 color = readTex[id.xy];
+    
+    // If sum0 is between 0 and 17 then the cell dies.
+    // If sum0 is between 40 and 42 then the cell lives.
+    if (sum0 >= 0 && sum0 <= 17)
+        color = dead;
+    if (sum0 >= 40 && sum0 <= 42)
+        color = float4(1, 0, 0, 1);
+    
+    // If sum1 is between 10 and 13 then the cell lives.
+    if (sum1 >= 10 && sum1 <= 13)
+        color = float4(1, 0, 1, 1);
+    
+    // If sum2 is between 9 and 21 then the cell dies.
+    if (sum2 >= 9 && sum2 <= 21)
+        color = dead;
+    
+    // If sum3 is between 78 and 89 then the cell dies.
+    // If sum3 is greater than 108 then the cell dies.
+    if (sum3 >= 78 && sum3 <= 89)
+        color = dead;
+    if (sum3 >= 108)
+        color = dead;
+    
+    float4 current = writeTex[id.xy];
+    writeTex[id.xy] = lerp(current, color, 0.5);
+}

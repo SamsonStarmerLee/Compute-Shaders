@@ -1,0 +1,102 @@
+﻿#pragma kernel ResetKernel
+#pragma kernel StepKernel
+#pragma kernel RenderKernel
+
+Texture2D<float> readTex;
+RWTexture2D<float> writeTex;
+RWTexture2D<float4> postTex;
+
+float time;
+uint rez;
+uint threshold;
+uint jitter;
+uint hands;
+
+float2 Random(float2 p)
+{
+    float3 a = frac(p.xyx * float3(123.34, 234.34, 345.65));
+    a += dot(a, a + 34.45);
+    return frac(float2(a.x * a.y, a.y * a.z));
+}
+
+[numthreads(8, 8, 1)]
+void ResetKernel(uint3 id : SV_DispatchThreadID)
+{
+    float r = (float)hands * Random((float2) id.xy).y;
+    writeTex[id.xy] = floor(r);
+}
+
+
+uint WrappedRead(uint2 index, int2 translation)
+{
+    // We need to cast here in order for the modulo to work 
+    // correctly (in case translation takes index below 0).
+    int2 samp = ((int2) index + translation) % rez;
+    return (uint) readTex[samp];
+}
+
+[numthreads(8, 8, 1)]
+void StepKernel(uint3 id : SV_DispatchThreadID)
+{
+    int current = readTex[id.xy];
+    int losses = 0;
+    int winningHand = 0;
+    
+    for (int x = -1; x < 2; x++)
+    {
+        for (int y = -1; y < 2; y++)
+        {
+            if (x == 0 && y == 0)
+            {
+                continue;
+            }
+            
+            int opponent = WrappedRead(id.xy, int2(x, y));
+            
+            // General form for finding a losing hand
+            int r = ((int) opponent - (int) current + 5) % (int) 3;
+            if (r == 0)
+            {
+                losses++;
+                winningHand = opponent;
+            }
+        }
+    }
+
+    float t = time % 1.0; // TODO: Unused
+    float r = Random((float2) id.xy).x;
+    float j = jitter * r;
+    
+    if (losses >= threshold + j)
+    {
+        writeTex[id.xy] = winningHand;
+    }
+    else
+    {
+        writeTex[id.xy] = current;
+    }
+}
+
+//  Function from Iñigo Quiles
+//  https://www.shadertoy.com/view/MsS3Wc
+float3 hsb2rgb(in float3 c)
+{
+    float3 rgb = clamp(abs(((c.x * 6.0 + float3(0.0, 4.0, 2.0))
+        % 6.0) - 3.0) - 1.0,
+        0.0,
+        1.0);
+    rgb = rgb * rgb * (3.0 - 2.0 * rgb);
+    return c.z * lerp(float3(1.0, 1.0, 1.0), rgb, c.y);
+}
+
+[numthreads(8, 8, 1)]
+void RenderKernel(uint3 id : SV_DispatchThreadID)
+{
+    float inColor = readTex[id.xy];
+    
+    float hue = inColor / (float) hands;
+    float3 c = hsb2rgb(float3(hue, 1, 1));
+    
+    postTex[id.xy] *= 0.2;
+    postTex[id.xy] += float4(c.r, c.g, c.b, 1);
+}

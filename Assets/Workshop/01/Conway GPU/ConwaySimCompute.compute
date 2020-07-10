@@ -1,0 +1,92 @@
+﻿#pragma enable_d3d11_debug_symbols
+
+#pragma kernel ResetKernel
+#pragma kernel StepKernel
+#pragma kernel RenderKernel
+
+RWTexture2D<float4> writeTex;
+RWTexture2D<float4> readTex;
+RWTexture2D<float4> postTex;
+int rez;
+float offset;
+
+[numthreads(1,1,1)]
+void ResetKernel(uint3 id : SV_DispatchThreadID)
+{
+    float2 toCentre = float2(rez / 2, rez / 2) - id.xy;
+    float r = length(toCentre) * 2.0;
+    
+    float a = atan2(toCentre.y, toCentre.x);
+    float f = sin(a * 3.);
+    
+    // TODO: Make this work
+    writeTex[id.xy] = f > 0;
+    
+    //writeTex[id.xy] = (int) ((length(id.xy / (float) rez - 0.5)) < 0.2);
+}
+
+[numthreads(1, 1, 1)]
+void StepKernel(uint3 id : SV_DispatchThreadID)
+{
+    int n = 0; // Number of neighbours.
+    
+    uint px = (uint) ((id.x + 1) % rez);
+    uint mx = id.x == 0 ? (uint) rez - 1 : id.x - 1;
+    uint py = (uint) ((id.y + 1) % rez);
+    uint my = id.y == 0 ? (uint) rez - 1 : id.y - 1;
+    
+    n += readTex[uint2(mx, py)].r;
+    n += readTex[uint2(id.x, py)].r;
+    n += readTex[uint2(px, py)].r;
+    n += readTex[uint2(mx, id.y)].r;
+    n += readTex[uint2(px, id.y)].r;
+    n += readTex[uint2(mx, my)].r;
+    n += readTex[uint2(id.x, my)].r;
+    n += readTex[uint2(px, my)].r;
+    
+    int s = readTex[id.xy].r;
+    float4 c = float4(0, 0, 0, n);
+    
+    if (s == 0 && n == 3)
+    {
+        // Born
+        c.xyz = 1;
+    }
+    else if (s == 1 && (n == 3 || n == 2))
+    {
+        // Live
+        c.xyz = s;
+    }
+    else
+    {
+        // Die
+        c.xyz = 0;
+    }
+    
+    writeTex[id.xy] = c;
+}
+
+//  Function from Iñigo Quiles
+//  https://www.shadertoy.com/view/MsS3Wc
+float3 hsb2rgb(in float3 c)
+{
+    float3 rgb = clamp(abs(((c.x * 6.0 + float3(0.0, 4.0, 2.0))
+        % 6.0) - 3.0) - 1.0,
+        0.0,
+        1.0);
+    rgb = rgb * rgb * (3.0 - 2.0 * rgb);
+    return c.z * lerp(float3(1.0, 1.0, 1.0), rgb, c.y);
+}
+
+[numthreads(1, 1, 1)]
+void RenderKernel(uint3 id : SV_DispatchThreadID)
+{
+    float4 inColor = readTex[id.xy];
+    
+    float h = inColor.a / 3.0 + offset;
+    float3 c = hsb2rgb(float3(h, 1, .2 * inColor.a > 1));
+    
+    postTex[id.xy] *= 0.9;
+    postTex[id.xy] += float4(c.r, c.g, c.b, 1);
+}
+

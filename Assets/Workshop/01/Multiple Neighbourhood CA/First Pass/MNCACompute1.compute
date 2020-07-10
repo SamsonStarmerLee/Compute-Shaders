@@ -1,0 +1,136 @@
+﻿#pragma kernel ResetKernel
+#pragma kernel StepKernel
+#pragma kernel RenderKernel
+
+RWTexture2D<float> writeTex;
+RWTexture2D<float> readTex;
+RWTexture2D<float4> postTex;
+uint rez;
+
+float2 Random(float2 p)
+{
+    float3 a = frac(p.xyx * float3(123.34, 234.34, 345.65));
+    a += dot(a, a + 34.45);
+    return frac(float2(a.x * a.y, a.y * a.z));
+}
+
+[numthreads(1,1,1)]
+void ResetKernel (uint3 id : SV_DispatchThreadID)
+{
+    float2 toCentre = float2(rez / 2, rez / 2) - id.xy;
+    float r = length(toCentre) * 2.0;
+    
+    writeTex[id.xy] = floor(Random(id.xy * 0.01).x * 2);
+}
+
+uint CircleNeighbourhood(uint2 centre, uint r)
+{
+    // Midpoint circle algorithm
+    
+    int n = 0; // Number of living neighbours;
+    
+    int x = r, y = 0;
+    int P = 1 - r;
+    
+    while (x > y)
+    {
+        y++;
+        
+        if (P <= 0)
+        {
+            // Mid-point is inside or on the perimeter
+            P = P + 2 * y + 1;
+        }
+        else
+        {
+            // Mid-point is outside the perimeter
+            x--;
+            P = P + 2 * y - 2 * x + 1;
+        }
+        
+        // All the perimeter points have already been printed 
+        if (x < y)
+        {
+            break;
+        }
+        
+        n += readTex[uint2(x + centre.x, y + centre.y)].r;
+        n += readTex[uint2(-x + centre.x, y + centre.y)].r;
+        n += readTex[uint2(x + centre.x, -y + centre.y)].r;
+        n += readTex[uint2(-x + centre.x, -y + centre.y)].r;
+        
+        if (x != y)
+        {
+            n += readTex[uint2(y + centre.x, x + centre.y)].r;
+            n += readTex[uint2(-y + centre.x, x + centre.y)].r;
+            n += readTex[uint2(y + centre.x, -x + centre.y)].r;
+            n += readTex[uint2(-y + centre.x, -x + centre.y)].r;
+        }
+    }
+    
+    return n;
+}
+
+[numthreads(1, 1, 1)]
+void StepKernel(uint3 id : SV_DispatchThreadID)
+{
+    // Neighbourhood 1
+    uint n11 = CircleNeighbourhood(id.xy, 1);
+    uint n12 = CircleNeighbourhood(id.xy, 3);
+    uint n13 = CircleNeighbourhood(id.xy, 5);
+    uint n14 = CircleNeighbourhood(id.xy, 8);
+    uint n15 = CircleNeighbourhood(id.xy, 11);
+    uint n16 = CircleNeighbourhood(id.xy, 15);
+    
+    // Neighbourhood 2
+    uint n21 = CircleNeighbourhood(id.xy, 2);
+    uint n22 = CircleNeighbourhood(id.xy, 4);
+    
+    // Neighbourhood 3
+    uint n31 = CircleNeighbourhood(id.xy, 4);
+    uint n32 = CircleNeighbourhood(id.xy, 5);
+    uint n33 = CircleNeighbourhood(id.xy, 6);
+    
+    // Neighbourhood 4
+    uint n41 = CircleNeighbourhood(id.xy, 1);
+    uint n42 = CircleNeighbourhood(id.xy, 4);
+    uint n43 = CircleNeighbourhood(id.xy, 7);
+    uint n44 = CircleNeighbourhood(id.xy, 11);
+    uint n45 = CircleNeighbourhood(id.xy, 12);
+    uint n46 = CircleNeighbourhood(id.xy, 13);
+    uint n47 = CircleNeighbourhood(id.xy, 14);
+    
+    uint sum1 = n11 + n12 + n13 + n14 + n15 + n16;
+    uint sum2 = n21 + n22;
+    uint sum3 = n31 + n32 + n33;
+    uint sum4 = n41 + n42 + n43 + n44 + n45 + n46 + n47;
+    
+    uint state = readTex[id.xy];
+
+    if (sum1 >= 0 && sum1 <= 17)
+        state = 0;
+    if (sum1 >= 40 && sum1 <= 42)
+        state = 1;
+    
+    if (sum2 >= 12 && sum2 <= 16)
+        state = 1;
+    
+    if (sum3 >= 78 && sum3 <= 89)
+        state = 0;
+    
+    if (sum4 >= 78 && sum4 <= 89)
+        state = 0;
+    if (sum4 >= 200)
+        state = 0;
+    
+    writeTex[id.xy] = state;
+}
+
+[numthreads(1, 1, 1)]
+void RenderKernel(uint3 id : SV_DispatchThreadID)
+{
+    uint c = readTex[id.xy];
+    
+    postTex[id.xy] *= 0.8;
+    postTex[id.xy] += float4(c, c, c, 1);
+}
